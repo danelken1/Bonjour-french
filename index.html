@@ -1,0 +1,880 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+<html>
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+  <meta http-equiv="Content-Style-Type" content="text/css">
+  <title></title>
+  <meta name="Generator" content="Cocoa HTML Writer">
+  <meta name="CocoaVersion" content="2575.7">
+  <style type="text/css">
+    p.p1 {margin: 0.0px 0.0px 0.0px 0.0px; font: 12.0px Helvetica}
+    p.p2 {margin: 0.0px 0.0px 0.0px 0.0px; font: 12.0px Helvetica; min-height: 14.0px}
+  </style>
+</head>
+<body>
+<p class="p1">&lt;!DOCTYPE html&gt;</p>
+<p class="p1">&lt;html lang="en"&gt;</p>
+<p class="p1">&lt;head&gt;</p>
+<p class="p1">&lt;meta charset="utf-8" /&gt;</p>
+<p class="p1">&lt;meta name="viewport" content="width=device-width,initial-scale=1" /&gt;</p>
+<p class="p1">&lt;title&gt;Bonjour! — A Canvas French Lab&lt;/title&gt;</p>
+<p class="p1">&lt;style&gt;</p>
+<p class="p1"><span class="Apple-converted-space">  </span>html, body { height:100%; margin:0; background:#0f1222; overflow:hidden; }</p>
+<p class="p1"><span class="Apple-converted-space">  </span>canvas { display:block; width:100vw; height:100vh; outline:none; }</p>
+<p class="p1">&lt;/style&gt;</p>
+<p class="p1">&lt;/head&gt;</p>
+<p class="p1">&lt;body&gt;</p>
+<p class="p1">&lt;canvas id="app" aria-label="French learning app"&gt;&lt;/canvas&gt;</p>
+<p class="p2"><br></p>
+<p class="p1">&lt;script&gt;</p>
+<p class="p1">/* ===========================================================</p>
+<p class="p1"><span class="Apple-converted-space">   </span>Bonjour! — A Canvas French Lab (Optimized)</p>
+<p class="p1"><span class="Apple-converted-space">   </span>-----------------------------------------------------------</p>
+<p class="p1"><span class="Apple-converted-space">   </span>- Canvas-only UI</p>
+<p class="p1"><span class="Apple-converted-space">   </span>- Activities: Home, Flashcards, Quiz, Mouse &amp; Cheese game</p>
+<p class="p1"><span class="Apple-converted-space">   </span>- Daily progress tracking (localStorage)</p>
+<p class="p1"><span class="Apple-converted-space">   </span>- Voice-over French word on cheese eat (SpeechSynthesis)</p>
+<p class="p1"><span class="Apple-converted-space">   </span>- Arrow keys control in game</p>
+<p class="p1"><span class="Apple-converted-space">   </span>- Perf tweaks: debounced resize, cached gradients, fewer</p>
+<p class="p1"><span class="Apple-converted-space">     </span>allocations in the main loop, light confetti</p>
+<p class="p1"><span class="Apple-converted-space">   </span>=========================================================== */</p>
+<p class="p2"><br></p>
+<p class="p1">/* ------------------ Globals &amp; Resize --------------------- */</p>
+<p class="p1">const canvas = document.getElementById('app');</p>
+<p class="p1">const ctx = canvas.getContext('2d', { alpha: true, desynchronized: true });</p>
+<p class="p2"><br></p>
+<p class="p1">let DPR = Math.max(1, Math.floor(window.devicePixelRatio || 1));</p>
+<p class="p1">const UXW = 1280, UXH = 800; <span class="Apple-converted-space">  </span>// design-space</p>
+<p class="p1">let VW = 0, VH = 0;<span class="Apple-converted-space">            </span>// device pixels backing the canvas</p>
+<p class="p1">let SCALE = 1; <span class="Apple-converted-space">                </span>// scale to fit UX within viewport</p>
+<p class="p1">let OFFSET_X = 0, OFFSET_Y = 0;</p>
+<p class="p2"><br></p>
+<p class="p1">let _resizeRAF = 0;</p>
+<p class="p1">function doResize() {</p>
+<p class="p1"><span class="Apple-converted-space">  </span>DPR = Math.max(1, Math.floor(window.devicePixelRatio || 1));</p>
+<p class="p1"><span class="Apple-converted-space">  </span>const w = Math.floor(window.innerWidth * DPR);</p>
+<p class="p1"><span class="Apple-converted-space">  </span>const h = Math.floor(window.innerHeight * DPR);</p>
+<p class="p1"><span class="Apple-converted-space">  </span>if (w === canvas.width &amp;&amp; h === canvas.height) return;</p>
+<p class="p2"><br></p>
+<p class="p1"><span class="Apple-converted-space">  </span>canvas.width = w;</p>
+<p class="p1"><span class="Apple-converted-space">  </span>canvas.height = h;</p>
+<p class="p1"><span class="Apple-converted-space">  </span>VW = canvas.width; VH = canvas.height;</p>
+<p class="p2"><br></p>
+<p class="p1"><span class="Apple-converted-space">  </span>const scaleX = VW / UXW, scaleY = VH / UXH;</p>
+<p class="p1"><span class="Apple-converted-space">  </span>SCALE = Math.min(scaleX, scaleY);</p>
+<p class="p1"><span class="Apple-converted-space">  </span>OFFSET_X = (VW / SCALE - UXW) / 2;</p>
+<p class="p1"><span class="Apple-converted-space">  </span>OFFSET_Y = (VH / SCALE - UXH) / 2;</p>
+<p class="p2"><br></p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.setTransform(1,0,0,1,0,0);</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.scale(SCALE, SCALE);</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.translate(OFFSET_X, OFFSET_Y);</p>
+<p class="p2"><br></p>
+<p class="p1"><span class="Apple-converted-space">  </span>// Invalidate cached gradients that depend on size</p>
+<p class="p1"><span class="Apple-converted-space">  </span>cache.gradients = {};</p>
+<p class="p1">}</p>
+<p class="p1">function queueResize() {</p>
+<p class="p1"><span class="Apple-converted-space">  </span>if (_resizeRAF) return;</p>
+<p class="p1"><span class="Apple-converted-space">  </span>_resizeRAF = requestAnimationFrame(() =&gt; {</p>
+<p class="p1"><span class="Apple-converted-space">    </span>_resizeRAF = 0;</p>
+<p class="p1"><span class="Apple-converted-space">    </span>doResize();</p>
+<p class="p1"><span class="Apple-converted-space">  </span>});</p>
+<p class="p1">}</p>
+<p class="p1">window.addEventListener('resize', queueResize, { passive: true });</p>
+<p class="p1">doResize();</p>
+<p class="p2"><br></p>
+<p class="p1">/* ------------------ Pointer + Keys ----------------------- */</p>
+<p class="p1">const pointer = { x:0, y:0, down:false, justReleased:false };</p>
+<p class="p1">function toUX(clientX, clientY) {</p>
+<p class="p1"><span class="Apple-converted-space">  </span>// Convert CSS px to UX coordinates</p>
+<p class="p1"><span class="Apple-converted-space">  </span>const dpr = DPR;</p>
+<p class="p1"><span class="Apple-converted-space">  </span>const scaleX = (canvas.width) / UXW, scaleY = (canvas.height) / UXH;</p>
+<p class="p1"><span class="Apple-converted-space">  </span>const s = Math.min(scaleX, scaleY);</p>
+<p class="p1"><span class="Apple-converted-space">  </span>const offX = (canvas.width/s - UXW) / 2;</p>
+<p class="p1"><span class="Apple-converted-space">  </span>const offY = (canvas.height/s - UXH) / 2;</p>
+<p class="p1"><span class="Apple-converted-space">  </span>return { x: (clientX*dpr)/s - offX, y: (clientY*dpr)/s - offY };</p>
+<p class="p1">}</p>
+<p class="p1">canvas.addEventListener('pointerdown', e=&gt;{</p>
+<p class="p1"><span class="Apple-converted-space">  </span>const p = toUX(e.clientX, e.clientY);</p>
+<p class="p1"><span class="Apple-converted-space">  </span>pointer.x = p.x; pointer.y = p.y; pointer.down = true;</p>
+<p class="p1">});</p>
+<p class="p1">canvas.addEventListener('pointermove', e=&gt;{</p>
+<p class="p1"><span class="Apple-converted-space">  </span>const p = toUX(e.clientX, e.clientY);</p>
+<p class="p1"><span class="Apple-converted-space">  </span>pointer.x = p.x; pointer.y = p.y;</p>
+<p class="p1">});</p>
+<p class="p1">canvas.addEventListener('pointerup', e=&gt;{</p>
+<p class="p1"><span class="Apple-converted-space">  </span>const p = toUX(e.clientX, e.clientY);</p>
+<p class="p1"><span class="Apple-converted-space">  </span>pointer.x = p.x; pointer.y = p.y;</p>
+<p class="p1"><span class="Apple-converted-space">  </span>pointer.down = false; pointer.justReleased = true;</p>
+<p class="p1"><span class="Apple-converted-space">  </span>unlockAudio();</p>
+<p class="p1">}, { passive:true });</p>
+<p class="p2"><br></p>
+<p class="p1">window.addEventListener('keydown', (e)=&gt;{</p>
+<p class="p1"><span class="Apple-converted-space">  </span>if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) {</p>
+<p class="p1"><span class="Apple-converted-space">    </span>e.preventDefault();</p>
+<p class="p1"><span class="Apple-converted-space">  </span>}</p>
+<p class="p1"><span class="Apple-converted-space">  </span>unlockAudio();</p>
+<p class="p1">});</p>
+<p class="p2"><br></p>
+<p class="p1">/* ------------------ Caches &amp; Helpers --------------------- */</p>
+<p class="p1">const cache = {</p>
+<p class="p1"><span class="Apple-converted-space">  </span>gradients: Object.create(null),</p>
+<p class="p1"><span class="Apple-converted-space">  </span>fontsSet: false</p>
+<p class="p1">};</p>
+<p class="p1">function setFonts() {</p>
+<p class="p1"><span class="Apple-converted-space">  </span>if (cache.fontsSet) return;</p>
+<p class="p1"><span class="Apple-converted-space">  </span>cache.fontsSet = true;</p>
+<p class="p1"><span class="Apple-converted-space">  </span>// Hint fonts early to reduce layout jank</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.font = '700 28px system-ui, -apple-system, Segoe UI, Roboto';</p>
+<p class="p1">}</p>
+<p class="p1">setFonts();</p>
+<p class="p2"><br></p>
+<p class="p1">function roundRectPath(c, x,y,w,h,r=16) {</p>
+<p class="p1"><span class="Apple-converted-space">  </span>c.beginPath();</p>
+<p class="p1"><span class="Apple-converted-space">  </span>c.moveTo(x+r, y);</p>
+<p class="p1"><span class="Apple-converted-space">  </span>c.arcTo(x+w, y, x+w, y+h, r);</p>
+<p class="p1"><span class="Apple-converted-space">  </span>c.arcTo(x+w, y+h, x, y+h, r);</p>
+<p class="p1"><span class="Apple-converted-space">  </span>c.arcTo(x, y+h, x, y, r);</p>
+<p class="p1"><span class="Apple-converted-space">  </span>c.arcTo(x, y, x+w, y, r);</p>
+<p class="p1"><span class="Apple-converted-space">  </span>c.closePath();</p>
+<p class="p1">}</p>
+<p class="p1">function drawButton(x,y,w,h,label,opts={}) {</p>
+<p class="p1"><span class="Apple-converted-space">  </span>const color = opts.color || '#FFD166';</p>
+<p class="p1"><span class="Apple-converted-space">  </span>const stroke = opts.stroke || '#2D2A3E';</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.save();</p>
+<p class="p1"><span class="Apple-converted-space">  </span>roundRectPath(ctx, x,y,w,h,14);</p>
+<p class="p1"><span class="Apple-converted-space">  </span>const key = `btn_${color}_${w}x${h}`;</p>
+<p class="p1"><span class="Apple-converted-space">  </span>let grad = cache.gradients[key];</p>
+<p class="p1"><span class="Apple-converted-space">  </span>if (!grad) {</p>
+<p class="p1"><span class="Apple-converted-space">    </span>grad = ctx.createLinearGradient(x,y,x,y+h);</p>
+<p class="p1"><span class="Apple-converted-space">    </span>grad.addColorStop(0, color);</p>
+<p class="p1"><span class="Apple-converted-space">    </span>grad.addColorStop(1, shade(color, -15));</p>
+<p class="p1"><span class="Apple-converted-space">    </span>cache.gradients[key] = grad;</p>
+<p class="p1"><span class="Apple-converted-space">  </span>}</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.fillStyle = grad; ctx.fill();</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.lineWidth = 3; ctx.strokeStyle = stroke; ctx.stroke();</p>
+<p class="p2"><br></p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.fillStyle = '#2D2A3E';</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.font = '700 28px system-ui, -apple-system, Segoe UI, Roboto';</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.textAlign = 'center'; ctx.textBaseline = 'middle';</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.shadowColor = 'rgba(0,0,0,0.15)'; ctx.shadowBlur = 6;</p>
+<p class="p1"><span class="Apple-converted-space">  </span>const cx = x+w/2, cy = y+h/2;</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.fillText(label, cx, cy);</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.restore();</p>
+<p class="p1"><span class="Apple-converted-space">  </span>return { x,y,w,h };</p>
+<p class="p1">}</p>
+<p class="p1">function isInside(rect, px,py) {</p>
+<p class="p1"><span class="Apple-converted-space">  </span>return px&gt;=rect.x &amp;&amp; py&gt;=rect.y &amp;&amp; px&lt;=rect.x+rect.w &amp;&amp; py&lt;=rect.y+rect.h;</p>
+<p class="p1">}</p>
+<p class="p1">function shade(hex, amt) {</p>
+<p class="p1"><span class="Apple-converted-space">  </span>const col = hex.replace('#','');</p>
+<p class="p1"><span class="Apple-converted-space">  </span>const num = parseInt(col,16);</p>
+<p class="p1"><span class="Apple-converted-space">  </span>let r = Math.max(0, Math.min(255, (num&gt;&gt;16) + amt));</p>
+<p class="p1"><span class="Apple-converted-space">  </span>let g = Math.max(0, Math.min(255, ((num&gt;&gt;8)&amp;0xFF)+amt));</p>
+<p class="p1"><span class="Apple-converted-space">  </span>let b = Math.max(0, Math.min(255, (num&amp;0xFF)+amt));</p>
+<p class="p1"><span class="Apple-converted-space">  </span>return '#'+(r&lt;&lt;16 | g&lt;&lt;8 | b).toString(16).padStart(6,'0');</p>
+<p class="p1">}</p>
+<p class="p2"><br></p>
+<p class="p1">/* ------------------ Theme / Background ------------------- */</p>
+<p class="p1">const skyline = {</p>
+<p class="p1"><span class="Apple-converted-space">  </span>drawBackdrop(t) {</p>
+<p class="p1"><span class="Apple-converted-space">    </span>// Cached vertical gradient</p>
+<p class="p1"><span class="Apple-converted-space">    </span>const key = 'bg_grad';</p>
+<p class="p1"><span class="Apple-converted-space">    </span>let g = cache.gradients[key];</p>
+<p class="p1"><span class="Apple-converted-space">    </span>if (!g) {</p>
+<p class="p1"><span class="Apple-converted-space">      </span>g = ctx.createLinearGradient(0,0,0,UXH);</p>
+<p class="p1"><span class="Apple-converted-space">      </span>g.addColorStop(0, '#1c2040');</p>
+<p class="p1"><span class="Apple-converted-space">      </span>g.addColorStop(0.45, '#2b2e5e');</p>
+<p class="p1"><span class="Apple-converted-space">      </span>g.addColorStop(1, '#3f2b4f');</p>
+<p class="p1"><span class="Apple-converted-space">      </span>cache.gradients[key] = g;</p>
+<p class="p1"><span class="Apple-converted-space">    </span>}</p>
+<p class="p1"><span class="Apple-converted-space">    </span>ctx.fillStyle = g;</p>
+<p class="p1"><span class="Apple-converted-space">    </span>ctx.fillRect(0,0,UXW,UXH);</p>
+<p class="p2"><br></p>
+<p class="p1"><span class="Apple-converted-space">    </span>// Light bokeh (reduced from 40 → 24 for perf)</p>
+<p class="p1"><span class="Apple-converted-space">    </span>for (let i=0;i&lt;24;i++) {</p>
+<p class="p1"><span class="Apple-converted-space">      </span>const x = (i*137 + (t*0.02*i)%UXW) % UXW;</p>
+<p class="p1"><span class="Apple-converted-space">      </span>const y = (i*97 + (t*0.015*i)%UXH) % UXH;</p>
+<p class="p1"><span class="Apple-converted-space">      </span>const r = (i%5)+2;</p>
+<p class="p1"><span class="Apple-converted-space">      </span>ctx.globalAlpha = 0.08 + 0.05*Math.sin((t*0.001*i));</p>
+<p class="p1"><span class="Apple-converted-space">      </span>ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2);</p>
+<p class="p1"><span class="Apple-converted-space">      </span>ctx.fillStyle = '#FFD166'; ctx.fill();</p>
+<p class="p1"><span class="Apple-converted-space">    </span>}</p>
+<p class="p1"><span class="Apple-converted-space">    </span>ctx.globalAlpha = 1;</p>
+<p class="p2"><br></p>
+<p class="p1"><span class="Apple-converted-space">    </span>// Eiffel silhouette (static)</p>
+<p class="p1"><span class="Apple-converted-space">    </span>ctx.save();</p>
+<p class="p1"><span class="Apple-converted-space">    </span>ctx.translate(UXW*0.8, UXH*0.7);</p>
+<p class="p1"><span class="Apple-converted-space">    </span>ctx.scale(1.2,1.2);</p>
+<p class="p1"><span class="Apple-converted-space">    </span>ctx.fillStyle = '#141326';</p>
+<p class="p1"><span class="Apple-converted-space">    </span>ctx.beginPath();</p>
+<p class="p1"><span class="Apple-converted-space">    </span>ctx.moveTo(-20,0); ctx.lineTo(20,0); ctx.lineTo(0,-160); ctx.closePath(); ctx.fill();</p>
+<p class="p1"><span class="Apple-converted-space">    </span>ctx.fillRect(-6,-160,12,12);</p>
+<p class="p1"><span class="Apple-converted-space">    </span>ctx.fillRect(-4,-172,8,8);</p>
+<p class="p1"><span class="Apple-converted-space">    </span>ctx.lineWidth = 3; ctx.strokeStyle = '#191832';</p>
+<p class="p1"><span class="Apple-converted-space">    </span>for (let y=-10; y&gt;-160; y-=25) {</p>
+<p class="p1"><span class="Apple-converted-space">      </span>ctx.beginPath(); ctx.moveTo(-20-(y/8), y); ctx.lineTo(20+(y/8), y); ctx.stroke();</p>
+<p class="p1"><span class="Apple-converted-space">    </span>}</p>
+<p class="p1"><span class="Apple-converted-space">    </span>ctx.restore();</p>
+<p class="p1"><span class="Apple-converted-space">  </span>}</p>
+<p class="p1">};</p>
+<p class="p2"><br></p>
+<p class="p1">/* ------------------ Confetti (lighter) ------------------- */</p>
+<p class="p1">const confetti = [];</p>
+<p class="p1">function spawnConfetti(x,y, n=18) {</p>
+<p class="p1"><span class="Apple-converted-space">  </span>for (let i=0;i&lt;n;i++) {</p>
+<p class="p1"><span class="Apple-converted-space">    </span>confetti.push({</p>
+<p class="p1"><span class="Apple-converted-space">      </span>x, y,</p>
+<p class="p1"><span class="Apple-converted-space">      </span>vx: (Math.random()*2-1)*4.5,</p>
+<p class="p1"><span class="Apple-converted-space">      </span>vy: -Math.random()*6-3,</p>
+<p class="p1"><span class="Apple-converted-space">      </span>g: 0.22,</p>
+<p class="p1"><span class="Apple-converted-space">      </span>life: 54+Math.random()*30,</p>
+<p class="p1"><span class="Apple-converted-space">      </span>color: ['#FFD166','#06D6A0','#EF476F','#118AB2'][Math.floor(Math.random()*4)]</p>
+<p class="p1"><span class="Apple-converted-space">    </span>});</p>
+<p class="p1"><span class="Apple-converted-space">  </span>}</p>
+<p class="p1">}</p>
+<p class="p1">function stepConfetti() {</p>
+<p class="p1"><span class="Apple-converted-space">  </span>for (let i=confetti.length-1;i&gt;=0;i--) {</p>
+<p class="p1"><span class="Apple-converted-space">    </span>const p = confetti[i];</p>
+<p class="p1"><span class="Apple-converted-space">    </span>p.vx *= 0.995; p.vy += p.g;</p>
+<p class="p1"><span class="Apple-converted-space">    </span>p.x += p.vx; p.y += p.vy;</p>
+<p class="p1"><span class="Apple-converted-space">    </span>if (--p.life &lt;= 0) confetti.splice(i,1);</p>
+<p class="p1"><span class="Apple-converted-space">  </span>}</p>
+<p class="p1">}</p>
+<p class="p1">function drawConfetti() {</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.save();</p>
+<p class="p1"><span class="Apple-converted-space">  </span>for (let i=0;i&lt;confetti.length;i++) {</p>
+<p class="p1"><span class="Apple-converted-space">    </span>const p = confetti[i];</p>
+<p class="p1"><span class="Apple-converted-space">    </span>ctx.globalAlpha = Math.max(0, Math.min(1, p.life/90));</p>
+<p class="p1"><span class="Apple-converted-space">    </span>ctx.fillStyle = p.color;</p>
+<p class="p1"><span class="Apple-converted-space">    </span>ctx.beginPath(); ctx.arc(p.x, p.y, 3.2, 0, Math.PI*2); ctx.fill();</p>
+<p class="p1"><span class="Apple-converted-space">  </span>}</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.restore();</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.globalAlpha = 1;</p>
+<p class="p1">}</p>
+<p class="p2"><br></p>
+<p class="p1">/* ------------------ Data: Words -------------------------- */</p>
+<p class="p1">const WORDS = [</p>
+<p class="p1"><span class="Apple-converted-space">  </span>{ fr:'bonjour', en:'hello' },</p>
+<p class="p1"><span class="Apple-converted-space">  </span>{ fr:'au revoir', en:'goodbye' },</p>
+<p class="p1"><span class="Apple-converted-space">  </span>{ fr:'s’il vous plaît', en:'please' },</p>
+<p class="p1"><span class="Apple-converted-space">  </span>{ fr:'merci', en:'thank you' },</p>
+<p class="p1"><span class="Apple-converted-space">  </span>{ fr:'de rien', en:'you’re welcome' },</p>
+<p class="p1"><span class="Apple-converted-space">  </span>{ fr:'oui', en:'yes' },</p>
+<p class="p1"><span class="Apple-converted-space">  </span>{ fr:'non', en:'no' },</p>
+<p class="p1"><span class="Apple-converted-space">  </span>{ fr:'pardon', en:'sorry / excuse me' },</p>
+<p class="p1"><span class="Apple-converted-space">  </span>{ fr:'comment ça va ?', en:'how are you?' },</p>
+<p class="p1"><span class="Apple-converted-space">  </span>{ fr:'très bien', en:'very well' },</p>
+<p class="p1"><span class="Apple-converted-space">  </span>{ fr:'je m’appelle', en:'my name is' },</p>
+<p class="p1"><span class="Apple-converted-space">  </span>{ fr:'enchanté(e)', en:'nice to meet you' },</p>
+<p class="p1"><span class="Apple-converted-space">  </span>{ fr:'où', en:'where' },</p>
+<p class="p1"><span class="Apple-converted-space">  </span>{ fr:'quand', en:'when' },</p>
+<p class="p1"><span class="Apple-converted-space">  </span>{ fr:'pourquoi', en:'why' },</p>
+<p class="p1"><span class="Apple-converted-space">  </span>{ fr:'qui', en:'who' },</p>
+<p class="p1"><span class="Apple-converted-space">  </span>{ fr:'combien', en:'how much / how many' },</p>
+<p class="p1"><span class="Apple-converted-space">  </span>{ fr:'je voudrais', en:'I would like' },</p>
+<p class="p1"><span class="Apple-converted-space">  </span>{ fr:'l’addition', en:'the bill/check' },</p>
+<p class="p1"><span class="Apple-converted-space">  </span>{ fr:'eau', en:'water' },</p>
+<p class="p1"><span class="Apple-converted-space">  </span>{ fr:'pain', en:'bread' },</p>
+<p class="p1"><span class="Apple-converted-space">  </span>{ fr:'fromage', en:'cheese' },</p>
+<p class="p1"><span class="Apple-converted-space">  </span>{ fr:'café', en:'coffee' },</p>
+<p class="p1"><span class="Apple-converted-space">  </span>{ fr:'thé', en:'tea' },</p>
+<p class="p1"><span class="Apple-converted-space">  </span>{ fr:'lait', en:'milk' },</p>
+<p class="p1"><span class="Apple-converted-space">  </span>{ fr:'le matin', en:'the morning' },</p>
+<p class="p1"><span class="Apple-converted-space">  </span>{ fr:'le soir', en:'the evening' },</p>
+<p class="p1"><span class="Apple-converted-space">  </span>{ fr:'aujourd’hui', en:'today' },</p>
+<p class="p1"><span class="Apple-converted-space">  </span>{ fr:'demain', en:'tomorrow' },</p>
+<p class="p1"><span class="Apple-converted-space">  </span>{ fr:'hier', en:'yesterday' },</p>
+<p class="p1"><span class="Apple-converted-space">  </span>{ fr:'gauche', en:'left' },</p>
+<p class="p1"><span class="Apple-converted-space">  </span>{ fr:'droite', en:'right' },</p>
+<p class="p1"><span class="Apple-converted-space">  </span>{ fr:'tout droit', en:'straight ahead' },</p>
+<p class="p1"><span class="Apple-converted-space">  </span>{ fr:'j’ai faim', en:'I’m hungry' },</p>
+<p class="p1"><span class="Apple-converted-space">  </span>{ fr:'j’ai soif', en:'I’m thirsty' },</p>
+<p class="p1"><span class="Apple-converted-space">  </span>{ fr:'je ne comprends pas', en:'I don’t understand' },</p>
+<p class="p1"><span class="Apple-converted-space">  </span>{ fr:'parlez-vous anglais ?', en:'do you speak English?' },</p>
+<p class="p1"><span class="Apple-converted-space">  </span>{ fr:'à bientôt', en:'see you soon' },</p>
+<p class="p1"><span class="Apple-converted-space">  </span>{ fr:'bien sûr', en:'of course' },</p>
+<p class="p1"><span class="Apple-converted-space">  </span>{ fr:'bon appétit', en:'enjoy your meal' },</p>
+<p class="p1"><span class="Apple-converted-space">  </span>{ fr:'félicitations', en:'congratulations' }</p>
+<p class="p1">];</p>
+<p class="p2"><br></p>
+<p class="p1">/* ------------------ TTS (SpeechSynthesis) ---------------- */</p>
+<p class="p1">let voices = [];</p>
+<p class="p1">let audioUnlocked = false;</p>
+<p class="p1">function loadVoices() { voices = speechSynthesis.getVoices() || []; }</p>
+<p class="p1">if ('speechSynthesis' in window) {</p>
+<p class="p1"><span class="Apple-converted-space">  </span>loadVoices();</p>
+<p class="p1"><span class="Apple-converted-space">  </span>window.speechSynthesis.onvoiceschanged = loadVoices;</p>
+<p class="p1">}</p>
+<p class="p1">function unlockAudio() {</p>
+<p class="p1"><span class="Apple-converted-space">  </span>if (audioUnlocked) return;</p>
+<p class="p1"><span class="Apple-converted-space">  </span>audioUnlocked = true;</p>
+<p class="p1"><span class="Apple-converted-space">  </span>try {</p>
+<p class="p1"><span class="Apple-converted-space">    </span>const u = new SpeechSynthesisUtterance(' ');</p>
+<p class="p1"><span class="Apple-converted-space">    </span>speechSynthesis.speak(u);</p>
+<p class="p1"><span class="Apple-converted-space">  </span>} catch {}</p>
+<p class="p1"><span class="Apple-converted-space">  </span>try { getBeepContext(); } catch {}</p>
+<p class="p1">}</p>
+<p class="p1">function pickVoice(langPrefix) {</p>
+<p class="p1"><span class="Apple-converted-space">  </span>if (!voices || !voices.length) return null;</p>
+<p class="p1"><span class="Apple-converted-space">  </span>const prefer = voices.filter(v =&gt; v.lang &amp;&amp; v.lang.toLowerCase().startsWith(langPrefix));</p>
+<p class="p1"><span class="Apple-converted-space">  </span>return prefer.find(v =&gt; /female|Google Français|Amelie|Thomas|Audrey/i.test(v.name)) || prefer[0] || voices[0];</p>
+<p class="p1">}</p>
+<p class="p1">function speakWord(fr, en) {</p>
+<p class="p1"><span class="Apple-converted-space">  </span>if (!('speechSynthesis' in window)) return;</p>
+<p class="p1"><span class="Apple-converted-space">  </span>if (speechSynthesis.speaking) speechSynthesis.cancel();</p>
+<p class="p1"><span class="Apple-converted-space">  </span>const u1 = new SpeechSynthesisUtterance(fr);</p>
+<p class="p1"><span class="Apple-converted-space">  </span>u1.lang = 'fr-FR'; u1.voice = pickVoice('fr'); u1.rate = 0.9; u1.pitch = 1.05; u1.volume = 1;</p>
+<p class="p1"><span class="Apple-converted-space">  </span>const u2 = new SpeechSynthesisUtterance(`means: ${en}`);</p>
+<p class="p1"><span class="Apple-converted-space">  </span>u2.lang = 'en-US'; u2.voice = pickVoice('en'); u2.rate = 1.0; u2.pitch = 1; u2.volume = 0.9;</p>
+<p class="p1"><span class="Apple-converted-space">  </span>speechSynthesis.speak(u1); speechSynthesis.speak(u2);</p>
+<p class="p1">}</p>
+<p class="p2"><br></p>
+<p class="p1">/* ------------------ Tiny SFX (beep) ---------------------- */</p>
+<p class="p1">let _beepCtx = null;</p>
+<p class="p1">function getBeepContext() {</p>
+<p class="p1"><span class="Apple-converted-space">  </span>if (_beepCtx) return _beepCtx;</p>
+<p class="p1"><span class="Apple-converted-space">  </span>const AC = window.AudioContext || window.webkitAudioContext;</p>
+<p class="p1"><span class="Apple-converted-space">  </span>_beepCtx = new AC({ latencyHint: 'interactive' });</p>
+<p class="p1"><span class="Apple-converted-space">  </span>return _beepCtx;</p>
+<p class="p1">}</p>
+<p class="p1">function beep(freq=880, dur=0.08) {</p>
+<p class="p1"><span class="Apple-converted-space">  </span>try {</p>
+<p class="p1"><span class="Apple-converted-space">    </span>const ac = getBeepContext();</p>
+<p class="p1"><span class="Apple-converted-space">    </span>const o = ac.createOscillator();</p>
+<p class="p1"><span class="Apple-converted-space">    </span>const g = ac.createGain();</p>
+<p class="p1"><span class="Apple-converted-space">    </span>o.type = 'triangle';</p>
+<p class="p1"><span class="Apple-converted-space">    </span>o.frequency.value = freq;</p>
+<p class="p1"><span class="Apple-converted-space">    </span>o.connect(g); g.connect(ac.destination);</p>
+<p class="p1"><span class="Apple-converted-space">    </span>const now = ac.currentTime;</p>
+<p class="p1"><span class="Apple-converted-space">    </span>g.gain.setValueAtTime(0.001, now);</p>
+<p class="p1"><span class="Apple-converted-space">    </span>g.gain.exponentialRampToValueAtTime(0.18, now + 0.01);</p>
+<p class="p1"><span class="Apple-converted-space">    </span>g.gain.exponentialRampToValueAtTime(0.0001, now + dur);</p>
+<p class="p1"><span class="Apple-converted-space">    </span>o.start(now); o.stop(now + dur);</p>
+<p class="p1"><span class="Apple-converted-space">  </span>} catch {}</p>
+<p class="p1">}</p>
+<p class="p2"><br></p>
+<p class="p1">/* ------------------ Progress &amp; Streak -------------------- */</p>
+<p class="p1">const STORAGE_KEY = 'bonjour_progress_v1';</p>
+<p class="p1">function todayKey() {</p>
+<p class="p1"><span class="Apple-converted-space">  </span>const d = new Date();</p>
+<p class="p1"><span class="Apple-converted-space">  </span>const y = d.getFullYear(), m = String(d.getMonth()+1).padStart(2,'0'), day = String(d.getDate()).padStart(2,'0');</p>
+<p class="p1"><span class="Apple-converted-space">  </span>return `${y}-${m}-${day}`;</p>
+<p class="p1">}</p>
+<p class="p1">const defaultProgress = {</p>
+<p class="p1"><span class="Apple-converted-space">  </span>daily: {}, // date -&gt; {flashcards, quizCorrect, cheese, wordsLearned}</p>
+<p class="p1"><span class="Apple-converted-space">  </span>totals: { flashcards:0, quizCorrect:0, cheese:0, wordsLearned:0 },</p>
+<p class="p1"><span class="Apple-converted-space">  </span>lastOpen: null</p>
+<p class="p1">};</p>
+<p class="p1">let progress = (()=&gt;{</p>
+<p class="p1"><span class="Apple-converted-space">  </span>try { const raw = localStorage.getItem(STORAGE_KEY); if (raw) return JSON.parse(raw); } catch {}</p>
+<p class="p1"><span class="Apple-converted-space">  </span>return JSON.parse(JSON.stringify(defaultProgress));</p>
+<p class="p1">})();</p>
+<p class="p1">function saveProgress() { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(progress)); } catch {} }</p>
+<p class="p1">function bump(metric, val=1) {</p>
+<p class="p1"><span class="Apple-converted-space">  </span>const key = todayKey();</p>
+<p class="p1"><span class="Apple-converted-space">  </span>if (!progress.daily[key]) progress.daily[key] = {flashcards:0, quizCorrect:0, cheese:0, wordsLearned:0};</p>
+<p class="p1"><span class="Apple-converted-space">  </span>progress.daily[key][metric] = (progress.daily[key][metric]||0) + val;</p>
+<p class="p1"><span class="Apple-converted-space">  </span>progress.totals[metric] = (progress.totals[metric]||0) + val;</p>
+<p class="p1"><span class="Apple-converted-space">  </span>saveProgress();</p>
+<p class="p1">}</p>
+<p class="p1">function getStreak(days=14) {</p>
+<p class="p1"><span class="Apple-converted-space">  </span>const res = [];</p>
+<p class="p1"><span class="Apple-converted-space">  </span>const d = new Date();</p>
+<p class="p1"><span class="Apple-converted-space">  </span>for (let i=0;i&lt;days;i++) {</p>
+<p class="p1"><span class="Apple-converted-space">    </span>const dt = new Date(d.getFullYear(), d.getMonth(), d.getDate()-i);</p>
+<p class="p1"><span class="Apple-converted-space">    </span>const key = dt.toISOString().slice(0,10);</p>
+<p class="p1"><span class="Apple-converted-space">    </span>res.push({ date:key, active: !!progress.daily[key] &amp;&amp; Object.values(progress.daily[key]).some(v=&gt;v&gt;0) });</p>
+<p class="p1"><span class="Apple-converted-space">  </span>}</p>
+<p class="p1"><span class="Apple-converted-space">  </span>let streak = 0;</p>
+<p class="p1"><span class="Apple-converted-space">  </span>for (let i=0;i&lt;res.length;i++) { if (res[i].active) streak++; else break; }</p>
+<p class="p1"><span class="Apple-converted-space">  </span>return { streak, days: res.reverse() };</p>
+<p class="p1">}</p>
+<p class="p2"><br></p>
+<p class="p1">/* ------------------ Navigation &amp; UI ---------------------- */</p>
+<p class="p1">const Scenes = { HOME:'HOME', FLASH:'FLASH', QUIZ:'QUIZ', GAME:'GAME', PROGRESS:'PROGRESS' };</p>
+<p class="p1">let scene = Scenes.HOME;</p>
+<p class="p2"><br></p>
+<p class="p1">const ui = {</p>
+<p class="p1"><span class="Apple-converted-space">  </span>buttons: [],</p>
+<p class="p1"><span class="Apple-converted-space">  </span>add(rect, onClick) { this.buttons.push({rect,onClick}); },</p>
+<p class="p1"><span class="Apple-converted-space">  </span>reset() { this.buttons.length = 0; },</p>
+<p class="p1"><span class="Apple-converted-space">  </span>handlePointer() {</p>
+<p class="p1"><span class="Apple-converted-space">    </span>if (!pointer.justReleased) return;</p>
+<p class="p1"><span class="Apple-converted-space">    </span>pointer.justReleased = false;</p>
+<p class="p1"><span class="Apple-converted-space">    </span>const {x,y} = pointer;</p>
+<p class="p1"><span class="Apple-converted-space">    </span>const arr = this.buttons;</p>
+<p class="p1"><span class="Apple-converted-space">    </span>for (let i=0;i&lt;arr.length;i++) {</p>
+<p class="p1"><span class="Apple-converted-space">      </span>const b = arr[i];</p>
+<p class="p1"><span class="Apple-converted-space">      </span>if (isInside(b.rect, x,y)) { b.onClick(); return; }</p>
+<p class="p1"><span class="Apple-converted-space">    </span>}</p>
+<p class="p1"><span class="Apple-converted-space">  </span>}</p>
+<p class="p1">};</p>
+<p class="p2"><br></p>
+<p class="p1">/* ------------------ Flashcards --------------------------- */</p>
+<p class="p1">let flashIndex = 0;</p>
+<p class="p1">let flashFlipped = false;</p>
+<p class="p1">let flashOrder = shuffle([...Array(WORDS.length).keys()]);</p>
+<p class="p2"><br></p>
+<p class="p1">function shuffle(a) { for (let i=a.length-1;i&gt;0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; }</p>
+<p class="p1">function nextFlash() { flashIndex = (flashIndex + 1) % flashOrder.length; flashFlipped = false; }</p>
+<p class="p2"><br></p>
+<p class="p1">function drawFlashcards(t) {</p>
+<p class="p1"><span class="Apple-converted-space">  </span>skyline.drawBackdrop(t);</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ui.reset();</p>
+<p class="p1"><span class="Apple-converted-space">  </span>drawHeader('Flashcards', 'Tap to flip; “I knew it” to advance', t);</p>
+<p class="p2"><br></p>
+<p class="p1"><span class="Apple-converted-space">  </span>const i = flashOrder[flashIndex];</p>
+<p class="p1"><span class="Apple-converted-space">  </span>const w = WORDS[i];</p>
+<p class="p1"><span class="Apple-converted-space">  </span>const card = { x: UXW*0.5-250, y: UXH*0.45-170, w: 500, h: 340 };</p>
+<p class="p2"><br></p>
+<p class="p1"><span class="Apple-converted-space">  </span>// Card</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.save();</p>
+<p class="p1"><span class="Apple-converted-space">  </span>roundRectPath(ctx, card.x, card.y, card.w, card.h, 22);</p>
+<p class="p1"><span class="Apple-converted-space">  </span>let cg = cache.gradients['card'];</p>
+<p class="p1"><span class="Apple-converted-space">  </span>if (!cg) {</p>
+<p class="p1"><span class="Apple-converted-space">    </span>cg = ctx.createLinearGradient(card.x, card.y, card.x, card.y+card.h);</p>
+<p class="p1"><span class="Apple-converted-space">    </span>cg.addColorStop(0, '#fff'); cg.addColorStop(1, '#f4f2ff');</p>
+<p class="p1"><span class="Apple-converted-space">    </span>cache.gradients['card'] = cg;</p>
+<p class="p1"><span class="Apple-converted-space">  </span>}</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.fillStyle = cg; ctx.fill();</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.lineWidth = 4; ctx.strokeStyle = '#2D2A3E'; ctx.stroke();</p>
+<p class="p2"><br></p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.fillStyle = '#2D2A3E'; ctx.textAlign = 'center';</p>
+<p class="p2"><br></p>
+<p class="p1"><span class="Apple-converted-space">  </span>if (!flashFlipped) {</p>
+<p class="p1"><span class="Apple-converted-space">    </span>ctx.font = '700 64px system-ui, -apple-system, Segoe UI, Roboto';</p>
+<p class="p1"><span class="Apple-converted-space">    </span>ctx.fillText(w.fr, card.x+card.w/2, card.y+card.h/2);</p>
+<p class="p1"><span class="Apple-converted-space">    </span>ctx.font = '400 22px system-ui, -apple-system, Segoe UI, Roboto';</p>
+<p class="p1"><span class="Apple-converted-space">    </span>ctx.fillText('(tap card to flip)', card.x+card.w/2, card.y+card.h*0.78);</p>
+<p class="p1"><span class="Apple-converted-space">  </span>} else {</p>
+<p class="p1"><span class="Apple-converted-space">    </span>ctx.font = '700 54px system-ui, -apple-system, Segoe UI, Roboto';</p>
+<p class="p1"><span class="Apple-converted-space">    </span>ctx.fillText(w.en, card.x+card.w/2, card.y+card.h/2);</p>
+<p class="p1"><span class="Apple-converted-space">    </span>ctx.font = '400 24px system-ui, -apple-system, Segoe UI, Roboto';</p>
+<p class="p1"><span class="Apple-converted-space">    </span>ctx.fillText(`French: ${w.fr}`, card.x+card.w/2, card.y+card.h*0.72);</p>
+<p class="p1"><span class="Apple-converted-space">  </span>}</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.restore();</p>
+<p class="p2"><br></p>
+<p class="p1"><span class="Apple-converted-space">  </span>// Interactions</p>
+<p class="p1"><span class="Apple-converted-space">  </span>const flipRect = {x:card.x, y:card.y, w:card.w, h:card.h};</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ui.add(flipRect, ()=&gt;{</p>
+<p class="p1"><span class="Apple-converted-space">    </span>flashFlipped = !flashFlipped;</p>
+<p class="p1"><span class="Apple-converted-space">    </span>beep(660, 0.05);</p>
+<p class="p1"><span class="Apple-converted-space">  </span>});</p>
+<p class="p2"><br></p>
+<p class="p1"><span class="Apple-converted-space">  </span>const b1 = drawButton(UXW*0.5-250, card.y+card.h+30, 220, 56, 'Practice again', {color:'#B8B8FF'});</p>
+<p class="p1"><span class="Apple-converted-space">  </span>const b2 = drawButton(UXW*0.5+30,<span class="Apple-converted-space">  </span>card.y+card.h+30, 220, 56, 'I knew it', {color:'#06D6A0'});</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ui.add(b1, ()=&gt;{ spawnConfetti(b1.x+b1.w/2, b1.y); beep(500, 0.06); });</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ui.add(b2, ()=&gt;{ spawnConfetti(b2.x+b2.w/2, b2.y); beep(900, 0.06); bump('flashcards',1); nextFlash(); });</p>
+<p class="p2"><br></p>
+<p class="p1"><span class="Apple-converted-space">  </span>drawFooterNav();</p>
+<p class="p1">}</p>
+<p class="p2"><br></p>
+<p class="p1">/* ------------------ Quiz -------------------------------- */</p>
+<p class="p1">let quizQ = makeQuizQ();</p>
+<p class="p1">let quizFeedback = null;</p>
+<p class="p1">let quizFeedbackT = 0;</p>
+<p class="p2"><br></p>
+<p class="p1">function makeQuizQ() {</p>
+<p class="p1"><span class="Apple-converted-space">  </span>const correctIdx = Math.floor(Math.random()*WORDS.length);</p>
+<p class="p1"><span class="Apple-converted-space">  </span>const correct = WORDS[correctIdx];</p>
+<p class="p1"><span class="Apple-converted-space">  </span>const choices = [correct];</p>
+<p class="p1"><span class="Apple-converted-space">  </span>while (choices.length&lt;4) {</p>
+<p class="p1"><span class="Apple-converted-space">    </span>const r = WORDS[Math.floor(Math.random()*WORDS.length)];</p>
+<p class="p1"><span class="Apple-converted-space">    </span>if (!choices.includes(r)) choices.push(r);</p>
+<p class="p1"><span class="Apple-converted-space">  </span>}</p>
+<p class="p1"><span class="Apple-converted-space">  </span>shuffle(choices);</p>
+<p class="p1"><span class="Apple-converted-space">  </span>const mode = Math.random()&lt;0.5 ? 'FR2EN' : 'EN2FR';</p>
+<p class="p1"><span class="Apple-converted-space">  </span>return { mode, correct, choices, askedAt: performance.now() };</p>
+<p class="p1">}</p>
+<p class="p2"><br></p>
+<p class="p1">function drawQuiz(t) {</p>
+<p class="p1"><span class="Apple-converted-space">  </span>skyline.drawBackdrop(t);</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ui.reset();</p>
+<p class="p1"><span class="Apple-converted-space">  </span>drawHeader('Quick Quiz', 'Choose the correct translation', t);</p>
+<p class="p2"><br></p>
+<p class="p1"><span class="Apple-converted-space">  </span>const q = quizQ;</p>
+<p class="p1"><span class="Apple-converted-space">  </span>const prompt = (q.mode==='FR2EN') ? q.correct.fr : q.correct.en;</p>
+<p class="p1"><span class="Apple-converted-space">  </span>const title = (q.mode==='FR2EN') ? 'What does this mean?' : 'How do you say this in French?';</p>
+<p class="p2"><br></p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.fillStyle = '#FFD166';</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.font = '700 28px system-ui, -apple-system, Segoe UI, Roboto';</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.textAlign = 'center';</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.fillText(title, UXW*0.5, UXH*0.3-40);</p>
+<p class="p2"><br></p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.fillStyle = '#FFFFFF';</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.font = '700 56px system-ui, -apple-system, Segoe UI, Roboto';</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.fillText(prompt, UXW*0.5, UXH*0.3+10);</p>
+<p class="p2"><br></p>
+<p class="p1"><span class="Apple-converted-space">  </span>const baseY = UXH*0.45;</p>
+<p class="p1"><span class="Apple-converted-space">  </span>for (let i=0;i&lt;4;i++) {</p>
+<p class="p1"><span class="Apple-converted-space">    </span>const c = q.choices[i];</p>
+<p class="p1"><span class="Apple-converted-space">    </span>const label = (q.mode==='FR2EN') ? c.en : c.fr;</p>
+<p class="p1"><span class="Apple-converted-space">    </span>const rect = drawButton(UXW*0.5-300, baseY + i*80, 600, 60, label, { color:'#B8F1F0' });</p>
+<p class="p1"><span class="Apple-converted-space">    </span>ui.add(rect, ()=&gt;{</p>
+<p class="p1"><span class="Apple-converted-space">      </span>const correct = c === q.correct;</p>
+<p class="p1"><span class="Apple-converted-space">      </span>if (correct) { spawnConfetti(rect.x+rect.w/2, rect.y); beep(1000, 0.08); bump('quizCorrect',1); }</p>
+<p class="p1"><span class="Apple-converted-space">      </span>else { beep(220, 0.12); }</p>
+<p class="p1"><span class="Apple-converted-space">      </span>quizFeedback = { correct, chosen: label, answer: (q.mode==='FR2EN') ? q.correct.en : q.correct.fr };</p>
+<p class="p1"><span class="Apple-converted-space">      </span>quizFeedbackT = t;</p>
+<p class="p1"><span class="Apple-converted-space">      </span>quizQ = makeQuizQ();</p>
+<p class="p1"><span class="Apple-converted-space">    </span>});</p>
+<p class="p1"><span class="Apple-converted-space">  </span>}</p>
+<p class="p2"><br></p>
+<p class="p1"><span class="Apple-converted-space">  </span>if (quizFeedback) {</p>
+<p class="p1"><span class="Apple-converted-space">    </span>const age = t - quizFeedbackT;</p>
+<p class="p1"><span class="Apple-converted-space">    </span>if (age &lt; 1500) {</p>
+<p class="p1"><span class="Apple-converted-space">      </span>const a = 1 - Math.min(1, age/1500);</p>
+<p class="p1"><span class="Apple-converted-space">      </span>drawToast(UXW*0.5, UXH*0.2, quizFeedback.correct ? 'Nice! 🎉' : `Answer: ${quizFeedback.answer}`, quizFeedback.correct ? '#06D6A0' : '#EF476F', a);</p>
+<p class="p1"><span class="Apple-converted-space">    </span>} else quizFeedback = null;</p>
+<p class="p1"><span class="Apple-converted-space">  </span>}</p>
+<p class="p2"><br></p>
+<p class="p1"><span class="Apple-converted-space">  </span>drawFooterNav();</p>
+<p class="p1">}</p>
+<p class="p2"><br></p>
+<p class="p1">function drawToast(cx, cy, text, color, alpha=1) {</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.save();</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.globalAlpha = 0.9*alpha;</p>
+<p class="p1"><span class="Apple-converted-space">  </span>const padding = 20;</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.font = '700 28px system-ui, -apple-system, Segoe UI, Roboto';</p>
+<p class="p1"><span class="Apple-converted-space">  </span>const w = ctx.measureText(text).width + padding*2;</p>
+<p class="p1"><span class="Apple-converted-space">  </span>const h = 56;</p>
+<p class="p1"><span class="Apple-converted-space">  </span>roundRectPath(ctx, cx - w/2, cy - h/2, w, h, 12);</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.fillStyle = color; ctx.fill();</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.fillStyle = '#1a1830';</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.textAlign = 'center'; ctx.textBaseline = 'middle';</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.fillText(text, cx, cy);</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.restore();</p>
+<p class="p1">}</p>
+<p class="p2"><br></p>
+<p class="p1">/* ------------------ Game: Mouse &amp; Cheese ----------------- */</p>
+<p class="p1">const GRID = { cols: 24, rows: 16 };</p>
+<p class="p1">function gridSize() {</p>
+<p class="p1"><span class="Apple-converted-space">  </span>const margin = 40;</p>
+<p class="p1"><span class="Apple-converted-space">  </span>const playW = UXW - margin*2, playH = UXH - 240;</p>
+<p class="p1"><span class="Apple-converted-space">  </span>const cell = Math.floor(Math.min(playW/GRID.cols, playH/GRID.rows));</p>
+<p class="p1"><span class="Apple-converted-space">  </span>const w = cell*GRID.cols, h = cell*GRID.rows;</p>
+<p class="p1"><span class="Apple-converted-space">  </span>return { cell, x: (UXW-w)/2, y: (UXH - h)/2 + 30, w, h };</p>
+<p class="p1">}</p>
+<p class="p1">let game = null;</p>
+<p class="p1">function newGame() {</p>
+<p class="p1"><span class="Apple-converted-space">  </span>const start = { x: Math.floor(GRID.cols/2), y: Math.floor(GRID.rows/2) };</p>
+<p class="p1"><span class="Apple-converted-space">  </span>game = {</p>
+<p class="p1"><span class="Apple-converted-space">    </span>dir: {x:1, y:0}, nextDir:{x:1,y:0},</p>
+<p class="p1"><span class="Apple-converted-space">    </span>speed: 7, lastStep: performance.now(), cellSec: 1000/7,</p>
+<p class="p1"><span class="Apple-converted-space">    </span>segments: [start, {x:start.x-1,y:start.y}],</p>
+<p class="p1"><span class="Apple-converted-space">    </span>cheese: randEmptyCell([start,{x:start.x-1,y:start.y}]),</p>
+<p class="p1"><span class="Apple-converted-space">    </span>alive: true, score: 0,</p>
+<p class="p1"><span class="Apple-converted-space">    </span>usedWordIdx: new Set(), overlayWord: null, overlayWordT: 0</p>
+<p class="p1"><span class="Apple-converted-space">  </span>};</p>
+<p class="p1">}</p>
+<p class="p1">function randEmptyCell(occupied) {</p>
+<p class="p1"><span class="Apple-converted-space">  </span>while (true) {</p>
+<p class="p1"><span class="Apple-converted-space">    </span>const p = { x: Math.floor(Math.random()*GRID.cols), y: Math.floor(Math.random()*GRID.rows) };</p>
+<p class="p1"><span class="Apple-converted-space">    </span>if (!occupied.some(s=&gt;s.x===p.x&amp;&amp;s.y===p.y)) return p;</p>
+<p class="p1"><span class="Apple-converted-space">  </span>}</p>
+<p class="p1">}</p>
+<p class="p1">function drawGame(t) {</p>
+<p class="p1"><span class="Apple-converted-space">  </span>skyline.drawBackdrop(t);</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ui.reset();</p>
+<p class="p1"><span class="Apple-converted-space">  </span>drawHeader('Mouse &amp; Cheese', 'Arrow keys to move. Eat cheese, learn words!', t);</p>
+<p class="p2"><br></p>
+<p class="p1"><span class="Apple-converted-space">  </span>const gs = gridSize();</p>
+<p class="p1"><span class="Apple-converted-space">  </span>// Board frame</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.save();</p>
+<p class="p1"><span class="Apple-converted-space">  </span>roundRectPath(ctx, gs.x-8, gs.y-8, gs.w+16, gs.h+16, 18);</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.fillStyle = '#1a1932'; ctx.fill();</p>
+<p class="p2"><br></p>
+<p class="p1"><span class="Apple-converted-space">  </span>// Checkerboard (no new allocations)</p>
+<p class="p1"><span class="Apple-converted-space">  </span>for (let r=0;r&lt;GRID.rows;r++) {</p>
+<p class="p1"><span class="Apple-converted-space">    </span>for (let c=0;c&lt;GRID.cols;c++) {</p>
+<p class="p1"><span class="Apple-converted-space">      </span>const x = gs.x + c*gs.cell, y = gs.y + r*gs.cell;</p>
+<p class="p1"><span class="Apple-converted-space">      </span>ctx.fillStyle = ((r^c)&amp;1) ? '#262358' : '#232045';</p>
+<p class="p1"><span class="Apple-converted-space">      </span>ctx.fillRect(x, y, gs.cell, gs.cell);</p>
+<p class="p1"><span class="Apple-converted-space">    </span>}</p>
+<p class="p1"><span class="Apple-converted-space">  </span>}</p>
+<p class="p2"><br></p>
+<p class="p1"><span class="Apple-converted-space">  </span>// Cheese</p>
+<p class="p1"><span class="Apple-converted-space">  </span>drawCheese(gs, game.cheese.x, game.cheese.y);</p>
+<p class="p2"><br></p>
+<p class="p1"><span class="Apple-converted-space">  </span>// Mouse segments</p>
+<p class="p1"><span class="Apple-converted-space">  </span>for (let i=game.segments.length-1;i&gt;=0;i--) {</p>
+<p class="p1"><span class="Apple-converted-space">    </span>const s = game.segments[i];</p>
+<p class="p1"><span class="Apple-converted-space">    </span>const x = gs.x + s.x*gs.cell, y = gs.y + s.y*gs.cell;</p>
+<p class="p1"><span class="Apple-converted-space">    </span>if (i===0) drawMouseHead(x, y, gs.cell, game.dir);</p>
+<p class="p1"><span class="Apple-converted-space">    </span>else drawMouseBody(x, y, gs.cell, i);</p>
+<p class="p1"><span class="Apple-converted-space">  </span>}</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.restore();</p>
+<p class="p2"><br></p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.fillStyle = '#FFD166';</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.font = '700 28px system-ui, -apple-system, Segoe UI, Roboto';</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.textAlign = 'left';</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.fillText(`Cheese: ${game.score}`, gs.x, gs.y-16);</p>
+<p class="p2"><br></p>
+<p class="p1"><span class="Apple-converted-space">  </span>if (!game.alive) {</p>
+<p class="p1"><span class="Apple-converted-space">    </span>drawToast(UXW*0.5, gs.y+gs.h/2, 'Oops! Tap to restart', '#EF476F', 1);</p>
+<p class="p1"><span class="Apple-converted-space">    </span>const clickRect = { x: gs.x-20, y: gs.y-20, w: gs.w+40, h: gs.h+40 };</p>
+<p class="p1"><span class="Apple-converted-space">    </span>ui.add(clickRect, ()=&gt;{ newGame(); });</p>
+<p class="p1"><span class="Apple-converted-space">  </span>}</p>
+<p class="p2"><br></p>
+<p class="p1"><span class="Apple-converted-space">  </span>if (game.overlayWord &amp;&amp; t - game.overlayWordT &lt; 2000) {</p>
+<p class="p1"><span class="Apple-converted-space">    </span>const a = 1 - Math.min(1, (t - game.overlayWordT)/2000);</p>
+<p class="p1"><span class="Apple-converted-space">    </span>drawToast(UXW*0.5, gs.y-48, `Répétez: ${game.overlayWord.fr} — ${game.overlayWord.en}`, '#06D6A0', a);</p>
+<p class="p1"><span class="Apple-converted-space">  </span>}</p>
+<p class="p2"><br></p>
+<p class="p1"><span class="Apple-converted-space">  </span>drawFooterNav();</p>
+<p class="p1">}</p>
+<p class="p1">function drawCheese(gs, gx, gy) {</p>
+<p class="p1"><span class="Apple-converted-space">  </span>const x = gs.x + gx*gs.cell + gs.cell/2;</p>
+<p class="p1"><span class="Apple-converted-space">  </span>const y = gs.y + gy*gs.cell + gs.cell/2;</p>
+<p class="p1"><span class="Apple-converted-space">  </span>const r = gs.cell*0.35;</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.save();</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.translate(x,y); ctx.rotate(0.1);</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.fillStyle = '#FFD166';</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.beginPath(); ctx.moveTo(-r, r*0.6); ctx.lineTo(r, 0); ctx.lineTo(-r, -r*0.6); ctx.closePath(); ctx.fill();</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.fillStyle = '#E3B54A';</p>
+<p class="p1"><span class="Apple-converted-space">  </span>for (let i=0;i&lt;3;i++) { ctx.beginPath(); ctx.arc((Math.random()*2-1)*r*0.4, (Math.random()*2-1)*r*0.3, gs.cell*0.06 + (i%2)*2, 0, Math.PI*2); ctx.fill(); }</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.restore();</p>
+<p class="p1">}</p>
+<p class="p1">function drawMouseHead(x, y, size, dir) {</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.save();</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.translate(x+size/2, y+size/2);</p>
+<p class="p1"><span class="Apple-converted-space">  </span>const ang = dir.x===1?0 : dir.x===-1?Math.PI : dir.y===1?Math.PI/2 : -Math.PI/2;</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.rotate(ang);</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.fillStyle = '#C9CAD9';</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.beginPath(); ctx.ellipse(0,0,size*0.42,size*0.34,0,0,Math.PI*2); ctx.fill();</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.fillStyle = '#DADAE6';</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.beginPath(); ctx.arc(-size*0.22, -size*0.22, size*0.14, 0, Math.PI*2); ctx.fill();</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.beginPath(); ctx.arc(-size*0.02, -size*0.25, size*0.12, 0, Math.PI*2); ctx.fill();</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.fillStyle = '#EF476F';</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.beginPath(); ctx.arc(size*0.35, 0, size*0.06, 0, Math.PI*2); ctx.fill();</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.fillStyle = '#2D2A3E';</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.beginPath(); ctx.arc(size*0.12, -size*0.12, size*0.05, 0, Math.PI*2); ctx.fill();</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.strokeStyle = '#2D2A3E'; ctx.lineWidth = 2;</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.beginPath(); ctx.moveTo(size*0.2, size*0.06); ctx.lineTo(size*0.4, size*0.14); ctx.stroke();</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.beginPath(); ctx.moveTo(size*0.2, -size*0.02); ctx.lineTo(size*0.4, -size*0.06); ctx.stroke();</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.restore();</p>
+<p class="p1">}</p>
+<p class="p1">function drawMouseBody(x,y,size,i) {</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.save();</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.translate(x+size/2, y+size/2);</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.fillStyle = i%2? '#BDBED0' : '#C9CAD9';</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.beginPath(); ctx.ellipse(0,0,size*0.38,size*0.3,0,0,Math.PI*2); ctx.fill();</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.restore();</p>
+<p class="p1">}</p>
+<p class="p2"><br></p>
+<p class="p1">function stepGame(now) {</p>
+<p class="p1"><span class="Apple-converted-space">  </span>if (!game || !game.alive) return;</p>
+<p class="p1"><span class="Apple-converted-space">  </span>if (now - game.lastStep &lt; game.cellSec) return;</p>
+<p class="p1"><span class="Apple-converted-space">  </span>game.lastStep = now;</p>
+<p class="p2"><br></p>
+<p class="p1"><span class="Apple-converted-space">  </span>if ((game.nextDir.x !== -game.dir.x) || (game.nextDir.y !== -game.dir.y)) game.dir = game.nextDir;</p>
+<p class="p2"><br></p>
+<p class="p1"><span class="Apple-converted-space">  </span>const head = game.segments[0];</p>
+<p class="p1"><span class="Apple-converted-space">  </span>const nx = head.x + game.dir.x, ny = head.y + game.dir.y;</p>
+<p class="p2"><br></p>
+<p class="p1"><span class="Apple-converted-space">  </span>if (nx&lt;0 || ny&lt;0 || nx&gt;=GRID.cols || ny&gt;=GRID.rows || game.segments.some(s=&gt;s.x===nx &amp;&amp; s.y===ny)) {</p>
+<p class="p1"><span class="Apple-converted-space">    </span>game.alive = false; beep(180, 0.2); return;</p>
+<p class="p1"><span class="Apple-converted-space">  </span>}</p>
+<p class="p2"><br></p>
+<p class="p1"><span class="Apple-converted-space">  </span>game.segments.unshift({x:nx, y:ny});</p>
+<p class="p1"><span class="Apple-converted-space">  </span>if (nx===game.cheese.x &amp;&amp; ny===game.cheese.y) {</p>
+<p class="p1"><span class="Apple-converted-space">    </span>game.score++; bump('cheese',1);</p>
+<p class="p1"><span class="Apple-converted-space">    </span>const gs = gridSize();</p>
+<p class="p1"><span class="Apple-converted-space">    </span>spawnConfetti((nx+0.5)*gs.cell + gs.x, (ny+0.5)*gs.cell + gs.y, 16);</p>
+<p class="p1"><span class="Apple-converted-space">    </span>beep(900, 0.06);</p>
+<p class="p2"><br></p>
+<p class="p1"><span class="Apple-converted-space">    </span>const idx = pickUnusedWord(game.usedWordIdx);</p>
+<p class="p1"><span class="Apple-converted-space">    </span>const w = WORDS[idx];</p>
+<p class="p1"><span class="Apple-converted-space">    </span>game.overlayWord = w; game.overlayWordT = now;</p>
+<p class="p1"><span class="Apple-converted-space">    </span>speakWord(w.fr, w.en);</p>
+<p class="p2"><br></p>
+<p class="p1"><span class="Apple-converted-space">    </span>game.cheese = randEmptyCell(game.segments);</p>
+<p class="p1"><span class="Apple-converted-space">    </span>game.speed = Math.min(14, game.speed + 0.2);</p>
+<p class="p1"><span class="Apple-converted-space">    </span>game.cellSec = 1000 / game.speed;</p>
+<p class="p1"><span class="Apple-converted-space">  </span>} else {</p>
+<p class="p1"><span class="Apple-converted-space">    </span>game.segments.pop();</p>
+<p class="p1"><span class="Apple-converted-space">  </span>}</p>
+<p class="p1">}</p>
+<p class="p1">function pickUnusedWord(usedSet) {</p>
+<p class="p1"><span class="Apple-converted-space">  </span>if (usedSet.size &gt;= WORDS.length) usedSet.clear();</p>
+<p class="p1"><span class="Apple-converted-space">  </span>let idx = Math.floor(Math.random()*WORDS.length);</p>
+<p class="p1"><span class="Apple-converted-space">  </span>let tries=0; while (usedSet.has(idx) &amp;&amp; tries&lt;100) { idx = Math.floor(Math.random()*WORDS.length); tries++; }</p>
+<p class="p1"><span class="Apple-converted-space">  </span>usedSet.add(idx); return idx;</p>
+<p class="p1">}</p>
+<p class="p1">window.addEventListener('keydown', (e)=&gt;{</p>
+<p class="p1"><span class="Apple-converted-space">  </span>if (scene !== Scenes.GAME || !game || !game.alive) return;</p>
+<p class="p1"><span class="Apple-converted-space">  </span>const k = e.key;</p>
+<p class="p1"><span class="Apple-converted-space">  </span>if (k==='ArrowUp') game.nextDir = {x:0,y:-1};</p>
+<p class="p1"><span class="Apple-converted-space">  </span>else if (k==='ArrowDown') game.nextDir = {x:0,y:1};</p>
+<p class="p1"><span class="Apple-converted-space">  </span>else if (k==='ArrowLeft') game.nextDir = {x:-1,y:0};</p>
+<p class="p1"><span class="Apple-converted-space">  </span>else if (k==='ArrowRight') game.nextDir = {x:1,y:0};</p>
+<p class="p1">});</p>
+<p class="p2"><br></p>
+<p class="p1">/* ------------------ Header / Footer ---------------------- */</p>
+<p class="p1">function drawHeader(title, subtitle, t) {</p>
+<p class="p1"><span class="Apple-converted-space">  </span>const x=40, y=30, w=UXW-80, h=100;</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.save();</p>
+<p class="p1"><span class="Apple-converted-space">  </span>roundRectPath(ctx, x, y, w, h, 22);</p>
+<p class="p1"><span class="Apple-converted-space">  </span>let g = cache.gradients['hdr'];</p>
+<p class="p1"><span class="Apple-converted-space">  </span>if (!g) {</p>
+<p class="p1"><span class="Apple-converted-space">    </span>g = ctx.createLinearGradient(x,y,x,y+h);</p>
+<p class="p1"><span class="Apple-converted-space">    </span>g.addColorStop(0, '#2B2A49'); g.addColorStop(1, '#24233A');</p>
+<p class="p1"><span class="Apple-converted-space">    </span>cache.gradients['hdr'] = g;</p>
+<p class="p1"><span class="Apple-converted-space">  </span>}</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.fillStyle = g; ctx.fill();</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.strokeStyle = '#3A3859'; ctx.lineWidth = 3; ctx.stroke();</p>
+<p class="p2"><br></p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.textAlign = 'left';</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.fillStyle = '#FFFFFF';</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.font = '800 46px system-ui, -apple-system, Segoe UI, Roboto';</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.fillText(`🇫🇷 ${title}`, x+28, y+58);</p>
+<p class="p2"><br></p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.fillStyle = '#B8B8FF';</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.font = '400 22px system-ui, -apple-system, Segoe UI, Roboto';</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.fillText(subtitle, x+28, y+90);</p>
+<p class="p2"><br></p>
+<p class="p1"><span class="Apple-converted-space">  </span>const goal = 20;</p>
+<p class="p1"><span class="Apple-converted-space">  </span>const today = progress.daily[todayKey()] || {flashcards:0, quizCorrect:0, cheese:0, wordsLearned:0};</p>
+<p class="p1"><span class="Apple-converted-space">  </span>const done = (today.flashcards + today.quizCorrect + today.cheese + today.wordsLearned);</p>
+<p class="p1"><span class="Apple-converted-space">  </span>const pct = Math.max(0, Math.min(1, done/goal));</p>
+<p class="p1"><span class="Apple-converted-space">  </span>const cx = x+w-70, cy = y+h/2, r = 34;</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2); ctx.strokeStyle='#3B3A58'; ctx.lineWidth=10; ctx.stroke();</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.beginPath(); ctx.arc(cx,cy,r,-Math.PI/2, -Math.PI/2 + Math.PI*2*pct); ctx.strokeStyle='#06D6A0'; ctx.lineWidth=10; ctx.stroke();</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.fillStyle = '#FFFFFF'; ctx.font = '700 18px system-ui, -apple-system, Segoe UI, Roboto';</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.textAlign = 'center'; ctx.fillText(`${Math.round(pct*100)}%`, cx, cy+6);</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.restore();</p>
+<p class="p1">}</p>
+<p class="p2"><br></p>
+<p class="p1">function drawFooterNav() {</p>
+<p class="p1"><span class="Apple-converted-space">  </span>const y = UXH - 86;</p>
+<p class="p1"><span class="Apple-converted-space">  </span>const buttons = [</p>
+<p class="p1"><span class="Apple-converted-space">    </span>{label:'Home', scene:Scenes.HOME, color:'#FFD166'},</p>
+<p class="p1"><span class="Apple-converted-space">    </span>{label:'Flashcards', scene:Scenes.FLASH, color:'#B8B8FF'},</p>
+<p class="p1"><span class="Apple-converted-space">    </span>{label:'Quiz', scene:Scenes.QUIZ, color:'#B8F1F0'},</p>
+<p class="p1"><span class="Apple-converted-space">    </span>{label:'Mouse &amp; Cheese', scene:Scenes.GAME, color:'#06D6A0'},</p>
+<p class="p1"><span class="Apple-converted-space">    </span>{label:'Progress', scene:Scenes.PROGRESS, color:'#EF476F'}</p>
+<p class="p1"><span class="Apple-converted-space">  </span>];</p>
+<p class="p1"><span class="Apple-converted-space">  </span>const gap = 16;</p>
+<p class="p1"><span class="Apple-converted-space">  </span>const bw = (UXW - 80 - gap*(buttons.length-1)) / buttons.length;</p>
+<p class="p1"><span class="Apple-converted-space">  </span>const x0 = 40;</p>
+<p class="p1"><span class="Apple-converted-space">  </span>for (let i=0;i&lt;buttons.length;i++) {</p>
+<p class="p1"><span class="Apple-converted-space">    </span>const b = buttons[i];</p>
+<p class="p1"><span class="Apple-converted-space">    </span>const rect = drawButton(x0 + i*(bw+gap), y, bw, 56, b.label, { color: b.color });</p>
+<p class="p1"><span class="Apple-converted-space">    </span>ui.add(rect, ()=&gt;{</p>
+<p class="p1"><span class="Apple-converted-space">      </span>if (b.scene === Scenes.GAME &amp;&amp; (!game || !game.alive)) newGame();</p>
+<p class="p1"><span class="Apple-converted-space">      </span>scene = b.scene;</p>
+<p class="p1"><span class="Apple-converted-space">      </span>if (scene===Scenes.GAME &amp;&amp; !game) newGame();</p>
+<p class="p1"><span class="Apple-converted-space">    </span>});</p>
+<p class="p1"><span class="Apple-converted-space">  </span>}</p>
+<p class="p1">}</p>
+<p class="p2"><br></p>
+<p class="p1">/* ------------------ Home &amp; Progress ---------------------- */</p>
+<p class="p1">function drawHome(t) {</p>
+<p class="p1"><span class="Apple-converted-space">  </span>skyline.drawBackdrop(t);</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ui.reset();</p>
+<p class="p1"><span class="Apple-converted-space">  </span>drawHeader('Bonjour! — Your French Lab', 'Pick an activity and earn your daily streak', t);</p>
+<p class="p2"><br></p>
+<p class="p1"><span class="Apple-converted-space">  </span>const bFlash = drawButton(UXW*0.5-280, UXH*0.38, 560, 68, '📚 Start Flashcards', {color:'#B8B8FF'});</p>
+<p class="p1"><span class="Apple-converted-space">  </span>const bQuiz<span class="Apple-converted-space">  </span>= drawButton(UXW*0.5-280, UXH*0.38+90, 560, 68, '📝 Quick Quiz', {color:'#B8F1F0'});</p>
+<p class="p1"><span class="Apple-converted-space">  </span>const bGame<span class="Apple-converted-space">  </span>= drawButton(UXW*0.5-280, UXH*0.38+180,560, 68, '🧀 Mouse &amp; Cheese (Snake)', {color:'#06D6A0'});</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ui.add(bFlash, ()=&gt;{ scene=Scenes.FLASH; });</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ui.add(bQuiz,<span class="Apple-converted-space">  </span>()=&gt;{ scene=Scenes.QUIZ; });</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ui.add(bGame,<span class="Apple-converted-space">  </span>()=&gt;{ if (!game) newGame(); scene=Scenes.GAME; });</p>
+<p class="p2"><br></p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.fillStyle = '#FFFFFF';</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.textAlign = 'center';</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.font = '400 22px system-ui, -apple-system, Segoe UI, Roboto';</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.fillText('Tap once after load to enable voice. Have fun!', UXW*0.5, UXH*0.38-40);</p>
+<p class="p2"><br></p>
+<p class="p1"><span class="Apple-converted-space">  </span>drawStreak(UXW*0.5-360, UXH*0.38+280, 720, 100);</p>
+<p class="p1"><span class="Apple-converted-space">  </span>drawFooterNav();</p>
+<p class="p1">}</p>
+<p class="p2"><br></p>
+<p class="p1">function drawStreak(x,y,w,h) {</p>
+<p class="p1"><span class="Apple-converted-space">  </span>const data = getStreak(14);</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.save();</p>
+<p class="p1"><span class="Apple-converted-space">  </span>roundRectPath(ctx, x, y, w, h, 18);</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.fillStyle = '#272646'; ctx.fill();</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.strokeStyle = '#3B3A58'; ctx.lineWidth=3; ctx.stroke();</p>
+<p class="p2"><br></p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.fillStyle = '#FFFFFF';</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.font = '700 22px system-ui, -apple-system, Segoe UI, Roboto';</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.textAlign = 'left';</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.fillText(`Streak: ${data.streak} day${data.streak===1?'':'s'}`, x+16, y+30);</p>
+<p class="p2"><br></p>
+<p class="p1"><span class="Apple-converted-space">  </span>const padL = x+16, padR = x+w-16, top = y+60;</p>
+<p class="p1"><span class="Apple-converted-space">  </span>const gap = (padR - padL) / 13;</p>
+<p class="p1"><span class="Apple-converted-space">  </span>for (let i=0;i&lt;data.days.length;i++) {</p>
+<p class="p1"><span class="Apple-converted-space">    </span>const d = data.days[i];</p>
+<p class="p1"><span class="Apple-converted-space">    </span>const cx = padL + i*gap;</p>
+<p class="p1"><span class="Apple-converted-space">    </span>ctx.beginPath(); ctx.arc(cx, top+18, 12, 0, Math.PI*2);</p>
+<p class="p1"><span class="Apple-converted-space">    </span>ctx.fillStyle = d.active ? '#06D6A0' : '#3B3A58'; ctx.fill();</p>
+<p class="p1"><span class="Apple-converted-space">  </span>}</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.restore();</p>
+<p class="p1">}</p>
+<p class="p2"><br></p>
+<p class="p1">function drawProgress(t) {</p>
+<p class="p1"><span class="Apple-converted-space">  </span>skyline.drawBackdrop(t);</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ui.reset();</p>
+<p class="p1"><span class="Apple-converted-space">  </span>drawHeader('Progress', 'Your last 14 days at a glance', t);</p>
+<p class="p2"><br></p>
+<p class="p1"><span class="Apple-converted-space">  </span>drawStreak(UXW*0.5-360, UXH*0.3, 720, 100);</p>
+<p class="p2"><br></p>
+<p class="p1"><span class="Apple-converted-space">  </span>const slab = { x: UXW*0.5-360, y: UXH*0.3+130, w: 720, h: 220 };</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.save();</p>
+<p class="p1"><span class="Apple-converted-space">  </span>roundRectPath(ctx, slab.x, slab.y, slab.w, slab.h, 20);</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.fillStyle = '#272646'; ctx.fill();</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.strokeStyle = '#3B3A58'; ctx.lineWidth=3; ctx.stroke();</p>
+<p class="p2"><br></p>
+<p class="p1"><span class="Apple-converted-space">  </span>const metrics = [</p>
+<p class="p1"><span class="Apple-converted-space">    </span>{label:'Flashcards', key:'flashcards', color:'#B8B8FF'},</p>
+<p class="p1"><span class="Apple-converted-space">    </span>{label:'Quiz Correct', key:'quizCorrect', color:'#B8F1F0'},</p>
+<p class="p1"><span class="Apple-converted-space">    </span>{label:'Cheese Eaten', key:'cheese', color:'#FFD166'},</p>
+<p class="p1"><span class="Apple-converted-space">    </span>{label:'Words Learned', key:'wordsLearned', color:'#06D6A0'},</p>
+<p class="p1"><span class="Apple-converted-space">  </span>];</p>
+<p class="p1"><span class="Apple-converted-space">  </span>const colW = slab.w/metrics.length;</p>
+<p class="p1"><span class="Apple-converted-space">  </span>for (let i=0;i&lt;metrics.length;i++) {</p>
+<p class="p1"><span class="Apple-converted-space">    </span>const m = metrics[i];</p>
+<p class="p1"><span class="Apple-converted-space">    </span>const valT = progress.totals[m.key] || 0;</p>
+<p class="p1"><span class="Apple-converted-space">    </span>ctx.fillStyle = '#FFFFFF';</p>
+<p class="p1"><span class="Apple-converted-space">    </span>ctx.font = '600 22px system-ui, -apple-system, Segoe UI, Roboto';</p>
+<p class="p1"><span class="Apple-converted-space">    </span>ctx.textAlign = 'center';</p>
+<p class="p1"><span class="Apple-converted-space">    </span>ctx.fillText(m.label, slab.x + colW*(i+0.5), slab.y+54);</p>
+<p class="p2"><br></p>
+<p class="p1"><span class="Apple-converted-space">    </span>ctx.fillStyle = m.color;</p>
+<p class="p1"><span class="Apple-converted-space">    </span>ctx.font = '800 46px system-ui, -apple-system, Segoe UI, Roboto';</p>
+<p class="p1"><span class="Apple-converted-space">    </span>ctx.fillText(valT.toString(), slab.x + colW*(i+0.5), slab.y+120);</p>
+<p class="p1"><span class="Apple-converted-space">  </span>}</p>
+<p class="p2"><br></p>
+<p class="p1"><span class="Apple-converted-space">  </span>ctx.restore();</p>
+<p class="p1"><span class="Apple-converted-space">  </span>drawFooterNav();</p>
+<p class="p1">}</p>
+<p class="p2"><br></p>
+<p class="p1">/* ------------------ Main Loop ---------------------------- */</p>
+<p class="p1">function frame(t) {</p>
+<p class="p1"><span class="Apple-converted-space">  </span>// Update transform each frame so pinch/zoom looks crisp</p>
+<p class="p1"><span class="Apple-converted-space">  </span>doResize();</p>
+<p class="p2"><br></p>
+<p class="p1"><span class="Apple-converted-space">  </span>switch (scene) {</p>
+<p class="p1"><span class="Apple-converted-space">    </span>case Scenes.HOME: <span class="Apple-converted-space">    </span>drawHome(t); break;</p>
+<p class="p1"><span class="Apple-converted-space">    </span>case Scenes.FLASH:<span class="Apple-converted-space">    </span>drawFlashcards(t); break;</p>
+<p class="p1"><span class="Apple-converted-space">    </span>case Scenes.QUIZ: <span class="Apple-converted-space">    </span>drawQuiz(t); break;</p>
+<p class="p1"><span class="Apple-converted-space">    </span>case Scenes.GAME: <span class="Apple-converted-space">    </span>stepGame(t); drawGame(t); break;</p>
+<p class="p1"><span class="Apple-converted-space">    </span>case Scenes.PROGRESS: drawProgress(t); break;</p>
+<p class="p1"><span class="Apple-converted-space">  </span>}</p>
+<p class="p1"><span class="Apple-converted-space">  </span>stepConfetti(); drawConfetti();</p>
+<p class="p1"><span class="Apple-converted-space">  </span>ui.handlePointer();</p>
+<p class="p1"><span class="Apple-converted-space">  </span>requestAnimationFrame(frame);</p>
+<p class="p1">}</p>
+<p class="p1">requestAnimationFrame(frame);</p>
+<p class="p2"><br></p>
+<p class="p1">/* ------------------ Init -------------------------------- */</p>
+<p class="p1">scene = Scenes.HOME;</p>
+<p class="p1">newGame();</p>
+<p class="p1">canvas.tabIndex = 0; canvas.focus();</p>
+<p class="p2"><br></p>
+<p class="p1">&lt;/script&gt;</p>
+<p class="p1">&lt;/body&gt;</p>
+<p class="p1">&lt;/html&gt;</p>
+</body>
+</html>
